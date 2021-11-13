@@ -21,8 +21,14 @@ repositories {
     mavenLocal()
 }
 
+val event_store_client: String by project
+val ktor_version: String by project
+
 dependencies {
     implementation(kotlin("stdlib"))
+    api("com.eventstore:db-client-java:$event_store_client")
+    implementation("io.ktor:ktor-server-core:$ktor_version")
+    testImplementation("io.ktor:ktor-server-test-host:$ktor_version")
     testImplementation(kotlin("test"))
 }
 
@@ -32,7 +38,6 @@ tasks.withType<KotlinCompile> {
         jvmTarget = "1.8"
         languageVersion = "1.5"
         apiVersion = "1.5"
-
     }
 }
 
@@ -43,9 +48,9 @@ val sourcesJar by tasks.registering(Jar::class) {
 
 publishing {
     (publications) {
-        register("project-name", MavenPublication::class) {
+        register("ktor-plugin-event-store-db", MavenPublication::class) {
             groupId = "com.github.traxterz"
-            artifactId = "project-name"
+            artifactId = "ktor-plugin-event-store-db"
             from(components["java"])
             artifact(sourcesJar)
         }
