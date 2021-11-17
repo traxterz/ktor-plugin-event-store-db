@@ -62,4 +62,11 @@ fun main() {
 ```
 ## What to expect
 
-Comming soon ... 
+You can expect a light wight wrapper around the official EventStoreDB Java clcient with some convience functions that port
+the sdk into the Kotlin world and into Ktor Server.
+
+After you installed the Ktor plugin as described above you can use it in the known routing kotlin DSL as follows:
+
+```kotlin
+
+```

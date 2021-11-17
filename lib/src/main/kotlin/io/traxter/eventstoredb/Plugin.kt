@@ -19,20 +19,29 @@ import io.ktor.application.ApplicationFeature
 import io.ktor.application.ApplicationStopPreparing
 import io.ktor.application.EventDefinition
 import io.ktor.application.install
+import io.ktor.application.log
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.launch
+import org.slf4j.Logger
 import kotlin.coroutines.CoroutineContext
 
 fun Application.EventStoreDB(config: EventStoreDB.Configuration.() -> Unit) =
     install(EventStoreDB, config)
 
+typealias ResolvedEventListener = suspend ResolvedEvent.() -> Unit
+typealias ErrorEventListener = suspend Subscription.(throwable: Throwable) -> Unit
+
 interface EventStoreDB : CoroutineScope {
     data class Configuration(
-        var connectionString: String = "esdb://localhost:2111,localhost:2112,localhost:2113?tls=true&tlsVerifyCert=false"
+        var connectionString: String = "esdb://localhost:2111,localhost:2112,localhost:2113?tls=true&tlsVerifyCert=false",
+        var logger: Logger,
+        var errorListener: ErrorEventListener = { throwable ->
+            logger.error("could not subscribe to [ ${this.subscriptionId} ] due to ${throwable.message}")
+        }
     )
 
     suspend fun appendToStream(streamName: String, eventType: String, message: String): WriteResult
@@ -44,15 +53,15 @@ interface EventStoreDB : CoroutineScope {
     suspend fun readAll(maxCount: Long): ReadResult
     suspend fun readAll(options: ReadAllOptions): ReadResult
     suspend fun readAll(maxCount: Long, options: ReadAllOptions): ReadResult
-    suspend fun subscribeToStream(streamName: String, listener: suspend ResolvedEvent.() -> Unit): Subscription
+    suspend fun subscribeToStream(streamName: String, listener: ResolvedEventListener): Subscription
     suspend fun subscribeToStream(
         streamName: String,
         options: SubscribeToStreamOptions,
         listener: suspend ResolvedEvent.() -> Unit
     ): Subscription
 
-    suspend fun subscribeToAll(listener: suspend ResolvedEvent.() -> Unit): Subscription
-    suspend fun subscribeToAll(options: SubscribeToAllOptions, listener: suspend ResolvedEvent.() -> Unit): Subscription
+    suspend fun subscribeToAll(listener: ResolvedEventListener): Subscription
+    suspend fun subscribeToAll(options: SubscribeToAllOptions, listener: ResolvedEventListener): Subscription
     suspend fun deleteStream(streamName: String): DeleteResult
     suspend fun deleteStream(streamName: String, options: DeleteStreamOptions.() -> Unit): DeleteResult
 
@@ -62,7 +71,7 @@ interface EventStoreDB : CoroutineScope {
 
         override fun install(pipeline: Application, configure: Configuration.() -> Unit): EventStoreDB {
             val applicationMonitor = pipeline.environment.monitor
-            val config = Configuration().apply(configure)
+            val config = Configuration(logger = pipeline.log).apply(configure)
             val plugin = EventStoreDbPlugin(config)
 
             applicationMonitor.subscribe(ApplicationStopPreparing) {
@@ -74,7 +83,7 @@ interface EventStoreDB : CoroutineScope {
     }
 }
 
-internal class EventStoreDbPlugin(config: EventStoreDB.Configuration) : EventStoreDB {
+internal class EventStoreDbPlugin(private val config: EventStoreDB.Configuration) : EventStoreDB {
     private val parent: CompletableJob = Job()
     override val coroutineContext: CoroutineContext
         get() = parent
@@ -93,13 +102,13 @@ internal class EventStoreDbPlugin(config: EventStoreDB.Configuration) : EventSto
 
     override suspend fun subscribeToStream(
         streamName: String,
-        listener: suspend ResolvedEvent.() -> Unit
+        listener: ResolvedEventListener
     ): Subscription = subscribeToStream(streamName, SubscribeToStreamOptions.get(), listener)
 
     override suspend fun subscribeToStream(
         streamName: String,
         options: SubscribeToStreamOptions,
-        listener: suspend ResolvedEvent.() -> Unit
+        listener: ResolvedEventListener
     ): Subscription =
         client.subscribeToStream(
             streamName,
@@ -107,22 +116,30 @@ internal class EventStoreDbPlugin(config: EventStoreDB.Configuration) : EventSto
                 override fun onEvent(subscription: Subscription?, event: ResolvedEvent) {
                     launch { listener(event) }
                 }
+
+                override fun onError(subscription: Subscription, throwable: Throwable) {
+                    launch { config.errorListener(subscription, throwable) }
+                }
             },
             options
         ).await()
 
-    override suspend fun subscribeToAll(listener: suspend ResolvedEvent.() -> Unit): Subscription = subscribeToAll(
+    override suspend fun subscribeToAll(listener: ResolvedEventListener): Subscription = subscribeToAll(
         SubscribeToAllOptions.get(), listener
     )
 
     override suspend fun subscribeToAll(
         options: SubscribeToAllOptions,
-        listener: suspend ResolvedEvent.() -> Unit
+        listener: ResolvedEventListener
     ): Subscription =
         client.subscribeToAll(
             object : SubscriptionListener() {
                 override fun onEvent(subscription: Subscription?, event: ResolvedEvent) {
                     launch { listener(event) }
+                }
+
+                override fun onError(subscription: Subscription, throwable: Throwable) {
+                    launch { config.errorListener(subscription, throwable) }
                 }
             },
             options
