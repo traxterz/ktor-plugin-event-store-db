@@ -64,7 +64,8 @@ class EventType(private val options: SubscribeToAllOptions, private val client: 
                         .newBuilder()
                         .withEventTypePrefix(prefix)
                         .build()
-                ), listener
+                ),
+                listener
             )
         }
 
@@ -76,7 +77,8 @@ class EventType(private val options: SubscribeToAllOptions, private val client: 
                         .newBuilder()
                         .withEventTypeRegularExpression(expression.pattern)
                         .build()
-                ), listener
+                ),
+                listener
             )
         }
 }
@@ -90,7 +92,8 @@ class StreamName(private val options: SubscribeToAllOptions, private val client:
                         .newBuilder()
                         .withStreamNamePrefix(prefix)
                         .build()
-                ), listener
+                ),
+                listener
             )
         }
 
@@ -102,7 +105,8 @@ class StreamName(private val options: SubscribeToAllOptions, private val client:
                         .newBuilder()
                         .withStreamNameRegularExpression(expression.pattern)
                         .build()
-                ), listener
+                ),
+                listener
             )
         }
 }
