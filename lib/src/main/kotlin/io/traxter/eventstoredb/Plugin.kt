@@ -5,7 +5,6 @@ import com.eventstore.dbclient.DeleteStreamOptions
 import com.eventstore.dbclient.EventData
 import com.eventstore.dbclient.EventStoreDBClient
 import com.eventstore.dbclient.EventStoreDBConnectionString
-import com.eventstore.dbclient.PersistentSubscription
 import com.eventstore.dbclient.Position
 import com.eventstore.dbclient.ReadAllOptions
 import com.eventstore.dbclient.ReadResult
