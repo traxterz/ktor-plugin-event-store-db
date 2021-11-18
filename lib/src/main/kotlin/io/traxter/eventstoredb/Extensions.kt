@@ -20,3 +20,4 @@ fun EventStoreDB.subscribe(streamName: String, config: StreamSubscription.() -> 
 
 inline fun <reified T> RecordedEvent.getEventDataAs(): T =
     getEventDataAs(T::class.java)
+
