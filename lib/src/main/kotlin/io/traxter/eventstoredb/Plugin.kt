@@ -1,10 +1,12 @@
 package io.traxter.eventstoredb
 
+import com.eventstore.dbclient.ConnectionSettingsBuilder
 import com.eventstore.dbclient.DeleteResult
 import com.eventstore.dbclient.DeleteStreamOptions
 import com.eventstore.dbclient.EventData
 import com.eventstore.dbclient.EventStoreDBClient
-import com.eventstore.dbclient.EventStoreDBConnectionString
+import com.eventstore.dbclient.EventStoreDBClientSettings
+import com.eventstore.dbclient.EventStoreDBConnectionString.parseOrThrow
 import com.eventstore.dbclient.Position
 import com.eventstore.dbclient.ReadAllOptions
 import com.eventstore.dbclient.ReadResult
@@ -36,17 +38,23 @@ fun Application.EventStoreDB(config: EventStoreDB.Configuration.() -> Unit) =
     install(EventStoreDB, config)
 
 typealias ResolvedEventListener = suspend ResolvedEvent.() -> Unit
-typealias ErrorEventListener = suspend Subscription.(throwable: Throwable) -> Unit
+typealias ErrorEventListener = suspend (subscription: Subscription?, throwable: Throwable) -> Unit
 
 interface EventStoreDB : CoroutineScope {
     data class Configuration(
-        var connectionString: String = "esdb://localhost:2111,localhost:2112,localhost:2113?tls=true&tlsVerifyCert=false",
+        var connectionString: String? = null,
+        var eventStoreSettings: EventStoreDBClientSettings =
+            EventStoreDBClientSettings.builder().buildConnectionSettings(),
         var logger: Logger,
-        var errorListener: ErrorEventListener = { throwable ->
-            logger.error("Subscription[ ${this.subscriptionId} ] was dropped due to  due to ${throwable.message}")
+        var errorListener: ErrorEventListener = { subscription, throwable ->
+            logger.error("Subscription[ ${subscription?.subscriptionId} ] failed due to due to ${throwable.message}")
         },
         var reSubscribeOnDrop: Boolean = true
-    )
+    ) {
+        fun eventStoreSettings(builder: ConnectionSettingsBuilder. () -> Unit) {
+            eventStoreSettings = EventStoreDBClientSettings.builder().apply(builder).buildConnectionSettings()
+        }
+    }
 
     suspend fun appendToStream(streamName: String, eventType: String, message: String): WriteResult
     suspend fun readStream(streamName: String): ReadResult
@@ -95,8 +103,9 @@ internal class EventStoreDbPlugin(private val config: EventStoreDB.Configuration
     private val streamRevisionBySubscriptionId = ConcurrentHashMap<String, StreamRevision>()
     private val positionBySubscriptionId = ConcurrentHashMap<String, Position>()
 
-    private val client = EventStoreDBClient
-        .create(EventStoreDBConnectionString.parseOrThrow(config.connectionString))
+    private val client = config.connectionString
+        ?.let { connectionString -> EventStoreDBClient.create(parseOrThrow(connectionString)) }
+        ?: EventStoreDBClient.create(config.eventStoreSettings)
 
     override suspend fun appendToStream(streamName: String, eventType: String, message: String): WriteResult =
         with(client) {
@@ -126,9 +135,9 @@ internal class EventStoreDbPlugin(private val config: EventStoreDB.Configuration
                     launch { listener(event) }
                 }
 
-                override fun onError(subscription: Subscription, throwable: Throwable) {
+                override fun onError(subscription: Subscription?, throwable: Throwable) {
                     launch {
-                        if (config.reSubscribeOnDrop)
+                        if (config.reSubscribeOnDrop && subscription != null)
                             subscribeToStream(
                                 streamName,
                                 options.fromRevision(streamRevisionBySubscriptionId[subscription.subscriptionId]),
@@ -156,9 +165,9 @@ internal class EventStoreDbPlugin(private val config: EventStoreDB.Configuration
                     launch { listener(event) }
                 }
 
-                override fun onError(subscription: Subscription, throwable: Throwable) {
+                override fun onError(subscription: Subscription?, throwable: Throwable) {
                     launch {
-                        if (config.reSubscribeOnDrop)
+                        if (config.reSubscribeOnDrop && subscription != null)
                             subscribeToAll(
                                 options.fromPosition(positionBySubscriptionId[subscription.subscriptionId]),
                                 listener
