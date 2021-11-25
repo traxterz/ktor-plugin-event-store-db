@@ -1,5 +1,6 @@
 package io.traxter.eventstoredb
 
+import com.eventstore.dbclient.AppendToStreamOptions
 import com.eventstore.dbclient.ConnectionSettingsBuilder
 import com.eventstore.dbclient.DeleteResult
 import com.eventstore.dbclient.DeleteStreamOptions
@@ -16,6 +17,7 @@ import com.eventstore.dbclient.StreamRevision
 import com.eventstore.dbclient.SubscribeToAllOptions
 import com.eventstore.dbclient.SubscribeToStreamOptions
 import com.eventstore.dbclient.Subscription
+import com.eventstore.dbclient.SubscriptionFilter
 import com.eventstore.dbclient.SubscriptionListener
 import com.eventstore.dbclient.WriteResult
 import io.ktor.application.Application
@@ -37,7 +39,7 @@ import kotlin.coroutines.CoroutineContext
 fun Application.EventStoreDB(config: EventStoreDB.Configuration.() -> Unit) =
     install(EventStoreDB, config)
 
-typealias ResolvedEventListener = suspend ResolvedEvent.() -> Unit
+typealias EventListener = suspend ResolvedEvent.() -> Unit
 typealias ErrorEventListener = suspend (subscription: Subscription?, throwable: Throwable) -> Unit
 
 interface EventStoreDB : CoroutineScope {
@@ -51,12 +53,24 @@ interface EventStoreDB : CoroutineScope {
         },
         var reSubscribeOnDrop: Boolean = true
     ) {
-        fun eventStoreSettings(builder: ConnectionSettingsBuilder. () -> Unit) {
+        fun eventStoreSettings(builder: ConnectionSettingsBuilder.() -> Unit) {
             eventStoreSettings = EventStoreDBClientSettings.builder().apply(builder).buildConnectionSettings()
         }
     }
 
-    suspend fun appendToStream(streamName: String, eventType: String, message: String): WriteResult
+    suspend fun appendToStream(
+        streamName: String,
+        eventType: String,
+        message: String,
+        options: AppendToStreamOptions = AppendToStreamOptions.get()
+    ): WriteResult
+
+    suspend fun appendToStream(
+        streamName: String,
+        eventData: EventData,
+        options: AppendToStreamOptions = AppendToStreamOptions.get()
+    ): WriteResult
+
     suspend fun readStream(streamName: String): ReadResult
     suspend fun readStream(streamName: String, maxCount: Long): ReadResult
     suspend fun readStream(streamName: String, options: ReadStreamOptions): ReadResult
@@ -65,15 +79,19 @@ interface EventStoreDB : CoroutineScope {
     suspend fun readAll(maxCount: Long): ReadResult
     suspend fun readAll(options: ReadAllOptions): ReadResult
     suspend fun readAll(maxCount: Long, options: ReadAllOptions): ReadResult
-    suspend fun subscribeToStream(streamName: String, listener: ResolvedEventListener): Subscription
+    suspend fun subscribeToStream(streamName: String, listener: EventListener): Subscription
     suspend fun subscribeToStream(
         streamName: String,
         options: SubscribeToStreamOptions,
-        listener: ResolvedEventListener
+        listener: EventListener
     ): Subscription
 
-    suspend fun subscribeToAll(listener: ResolvedEventListener): Subscription
-    suspend fun subscribeToAll(options: SubscribeToAllOptions, listener: ResolvedEventListener): Subscription
+    suspend fun subscribeToAll(listener: EventListener): Subscription
+    suspend fun subscribeToAll(options: SubscribeToAllOptions, listener: EventListener): Subscription
+    suspend fun subscribeByStreamNameFiltered(prefix: Prefix, listener: EventListener): Subscription
+    suspend fun subscribeByStreamNameFiltered(regex: Regex, listener: EventListener): Subscription
+    suspend fun subscribeByEventTypeFiltered(prefix: Prefix, listener: EventListener): Subscription
+    suspend fun subscribeByEventTypeFiltered(regex: Regex, listener: EventListener): Subscription
     suspend fun deleteStream(streamName: String): DeleteResult
     suspend fun deleteStream(streamName: String, options: DeleteStreamOptions.() -> Unit): DeleteResult
 
@@ -107,11 +125,20 @@ internal class EventStoreDbPlugin(private val config: EventStoreDB.Configuration
         ?.let { connectionString -> EventStoreDBClient.create(parseOrThrow(connectionString)) }
         ?: EventStoreDBClient.create(config.eventStoreSettings)
 
-    override suspend fun appendToStream(streamName: String, eventType: String, message: String): WriteResult =
-        with(client) {
-            val eventData = EventData.builderAsBinary(eventType, message.toByteArray()).build()
-            appendToStream(streamName, eventData).await()
-        }
+    override suspend fun appendToStream(
+        streamName: String,
+        eventType: String,
+        message: String,
+        options: AppendToStreamOptions
+    ): WriteResult =
+        appendToStream(streamName, EventData.builderAsJson(eventType, message).build(), options)
+
+    override suspend fun appendToStream(
+        streamName: String,
+        eventData: EventData,
+        options: AppendToStreamOptions
+    ): WriteResult =
+        client.appendToStream(streamName, eventData).await()
 
     override suspend fun deleteStream(streamName: String): DeleteResult = client.deleteStream(streamName).await()
     override suspend fun deleteStream(streamName: String, options: DeleteStreamOptions.() -> Unit): DeleteResult =
@@ -119,13 +146,13 @@ internal class EventStoreDbPlugin(private val config: EventStoreDB.Configuration
 
     override suspend fun subscribeToStream(
         streamName: String,
-        listener: ResolvedEventListener
+        listener: EventListener
     ): Subscription = subscribeToStream(streamName, SubscribeToStreamOptions.get(), listener)
 
     override suspend fun subscribeToStream(
         streamName: String,
         options: SubscribeToStreamOptions,
-        listener: ResolvedEventListener
+        listener: EventListener
     ): Subscription =
         client.subscribeToStream(
             streamName,
@@ -150,13 +177,13 @@ internal class EventStoreDbPlugin(private val config: EventStoreDB.Configuration
             options
         ).await()
 
-    override suspend fun subscribeToAll(listener: ResolvedEventListener): Subscription = subscribeToAll(
+    override suspend fun subscribeToAll(listener: EventListener): Subscription = subscribeToAll(
         SubscribeToAllOptions.get(), listener
     )
 
     override suspend fun subscribeToAll(
         options: SubscribeToAllOptions,
-        listener: ResolvedEventListener
+        listener: EventListener
     ): Subscription =
         client.subscribeToAll(
             object : SubscriptionListener() {
@@ -179,6 +206,22 @@ internal class EventStoreDbPlugin(private val config: EventStoreDB.Configuration
             options
         ).await()
 
+    override suspend fun subscribeByStreamNameFiltered(prefix: Prefix, listener: EventListener): Subscription =
+        SubscriptionFilter.newBuilder().withStreamNamePrefix(prefix.value).build()
+            .let { subscribeToAll(SubscribeToAllOptions.get().filter(it), listener) }
+
+    override suspend fun subscribeByStreamNameFiltered(regex: Regex, listener: EventListener): Subscription =
+        SubscriptionFilter.newBuilder().withStreamNameRegularExpression(regex.pattern).build()
+            .let { subscribeToAll(SubscribeToAllOptions.get().filter(it), listener) }
+
+    override suspend fun subscribeByEventTypeFiltered(prefix: Prefix, listener: EventListener): Subscription =
+        SubscriptionFilter.newBuilder().withEventTypePrefix(prefix.value).build()
+            .let { subscribeToAll(SubscribeToAllOptions.get().filter(it), listener) }
+
+    override suspend fun subscribeByEventTypeFiltered(regex: Regex, listener: EventListener): Subscription =
+        SubscriptionFilter.newBuilder().withEventTypeRegularExpression(regex.pattern).build()
+            .let { subscribeToAll(SubscribeToAllOptions.get().filter(it), listener) }
+
     override suspend fun readStream(streamName: String): ReadResult =
         client.readStream(streamName).await()
 
@@ -200,3 +243,9 @@ internal class EventStoreDbPlugin(private val config: EventStoreDB.Configuration
     fun shutdown() =
         parent.complete().also { client.shutdown() }
 }
+
+@JvmInline
+value class Prefix(val value: String)
+
+val String.prefix get() = Prefix(this)
+val String.regex get() = this.toRegex()

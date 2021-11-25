@@ -21,7 +21,7 @@ class StreamsSubscription(
     }
 
     fun filter(config: Filter.() -> Unit) = config(Filter(defaultSubscribeToAllOptions, client))
-    fun CoroutineScope.position(position: Pair<Long, Long>, listener: ResolvedEventListener): Job =
+    fun CoroutineScope.position(position: Pair<Long, Long>, listener: EventListener): Job =
         launch {
             client.subscribeToAll(
                 defaultSubscribeToAllOptions
@@ -30,7 +30,7 @@ class StreamsSubscription(
             )
         }
 
-    fun CoroutineScope.start(listener: ResolvedEventListener): Job =
+    fun CoroutineScope.start(listener: EventListener): Job =
         launch {
             client.subscribeToAll(
                 defaultSubscribeToAllOptions.fromStart(),
@@ -38,7 +38,7 @@ class StreamsSubscription(
             )
         }
 
-    fun CoroutineScope.end(listener: ResolvedEventListener): Job =
+    fun CoroutineScope.end(listener: EventListener): Job =
         launch {
             client.subscribeToAll(
                 defaultSubscribeToAllOptions
@@ -56,7 +56,7 @@ class Filter(private val options: SubscribeToAllOptions, private val client: Eve
 
 class EventType(private val options: SubscribeToAllOptions, private val client: EventStoreDB) {
 
-    fun CoroutineScope.prefixed(prefix: String, listener: ResolvedEventListener): Job =
+    fun CoroutineScope.prefixed(prefix: String, listener: EventListener): Job =
         launch {
             client.subscribeToAll(
                 options.filter(
@@ -69,7 +69,7 @@ class EventType(private val options: SubscribeToAllOptions, private val client: 
             )
         }
 
-    fun CoroutineScope.regex(expression: Regex, listener: ResolvedEventListener): Job =
+    fun CoroutineScope.regex(expression: Regex, listener: EventListener): Job =
         launch {
             client.subscribeToAll(
                 options.filter(
@@ -84,7 +84,7 @@ class EventType(private val options: SubscribeToAllOptions, private val client: 
 }
 
 class StreamName(private val options: SubscribeToAllOptions, private val client: EventStoreDB) {
-    fun CoroutineScope.prefixed(prefix: String, listener: ResolvedEventListener): Job =
+    fun CoroutineScope.prefixed(prefix: String, listener: EventListener): Job =
         launch {
             client.subscribeToAll(
                 options.filter(
@@ -97,7 +97,7 @@ class StreamName(private val options: SubscribeToAllOptions, private val client:
             )
         }
 
-    fun CoroutineScope.regex(expression: Regex, listener: ResolvedEventListener): Job =
+    fun CoroutineScope.regex(expression: Regex, listener: EventListener): Job =
         launch {
             client.subscribeToAll(
                 options.filter(
@@ -122,7 +122,7 @@ class StreamSubscription(
         config(StreamSubscription(streamName, client, subscribeToAllOptions))
     }
 
-    fun CoroutineScope.revision(revision: Long, listener: ResolvedEventListener) =
+    fun CoroutineScope.revision(revision: Long, listener: EventListener) =
         launch {
             client.subscribeToStream(
                 streamName,
@@ -132,7 +132,7 @@ class StreamSubscription(
             )
         }
 
-    fun CoroutineScope.start(listener: ResolvedEventListener): Job =
+    fun CoroutineScope.start(listener: EventListener): Job =
         launch {
             client.subscribeToStream(
                 streamName,
@@ -142,7 +142,7 @@ class StreamSubscription(
             )
         }
 
-    fun CoroutineScope.end(listener: ResolvedEventListener): Job =
+    fun CoroutineScope.end(listener: EventListener): Job =
         launch {
             client.subscribeToStream(
                 streamName,
