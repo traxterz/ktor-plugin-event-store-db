@@ -1,9 +1,7 @@
 # Ktor Plugin EventStoreDB
 
 [EventStoreDB](https://www.eventstore.com) is an open-source database technology that stores your critical data in
-streams of immutable events. It was built from the ground up for Event Sourcing, we believe that makes it the best
-solution in the market for building event-sourced systems. Event Sourcing offers some great benefits over state-oriented
-systems.
+streams of immutable events. It was built from the ground up for Event Sourcing. Checkout the [official website](https://www.eventstore.com) for more information.
 
 This [Plugin](https://ktor.io/docs/creating-custom-plugins.html) is an seamless integration into the world
 of [Ktor Server](https://ktor.io), which is a lightweight server application framework to handle http requests and more
@@ -37,9 +35,9 @@ dependencies {
     </repository>
 </repositories>
 <dependency>
-<groupId>com.github.tracksterz</groupId>
-<artifactId>ktor-plugin-event-store-db</artifactId>
-<version>VERSION</version>
+    <groupId>com.github.tracksterz</groupId>
+    <artifactId>ktor-plugin-event-store-db</artifactId>
+    <version>VERSION</version>
 </dependency>
 ```
 
@@ -118,25 +116,18 @@ val eventStoreDBClient by instance<EventStoreDB>()
 ```
 
 ### Appending events
-
+The plugin provides these methods for appending events:
 ```kotlin
-suspend fun appendToStream(
-    streamName: String,
-    eventType: String,
-    message: String,
-    options: AppendToStreamOptions
-): WriteResult
+suspend fun appendToStream(streamName: String, eventType: String, message: String, options: AppendToStreamOptions): WriteResult
 
 suspend fun appendToStream(streamName: String, eventData: EventData, options: AppendToStreamOptions): WriteResult
 ```
 
-For appending events we provide these to functions, expecting either
-an [EventData](https://developers.eventstore.com/clients/grpc/appending-events.html#append-your-first-event) object,
+These functions, expecting either an [EventData](https://developers.eventstore.com/clients/grpc/appending-events.html#append-your-first-event) object,
 which is borrowed from the underlying java client, or for your convenience, you can pass minimal needed information to
 append a stream. There is no need to inject options, since they default to the default options. Further information on
 handling [EventData](https://developers.eventstore.com/clients/grpc/appending-events.html#working-with-eventdata) and
-AppendToStreamOptions can be found in
-the [docs](https://developers.eventstore.com/clients/grpc/appending-events.html#appending-events).
+AppendToStreamOptions can be found in the [docs](https://developers.eventstore.com/clients/grpc/appending-events.html#appending-events).
 
 #### Example
 
@@ -148,7 +139,7 @@ suspend fun Application.saveEvent(streamName: String, eventType: String, event: 
 ```
 
 ### Reading events
-
+The plugin provides these methods for reading events:
 ```kotlin
 suspend fun readStream(streamName: String): ReadResult
 
@@ -189,17 +180,14 @@ provide an event listener and an optional starting point to the subscription. Th
 the starting point onward. If events already exist, the handler will be called for each event one by one until it
 reaches the end of the stream. From there, the server will notify the handler whenever a new event appears.
 
+The plugin provides these methods for subscribing to a single stream:
 ```kotlin
 suspend fun subscribeToStream(streamName: String, listener: ResolvedEventListener): Subscription
 
-suspend fun subscribeToStream(
-    streamName: String,
-    options: SubscribeToStreamOptions,
-    listener: ResolvedEventListener
-): Subscription
+suspend fun subscribeToStream(streamName: String, options: SubscribeToStreamOptions, listener: ResolvedEventListener): Subscription
 ```
 
-Further information, surprise surprise, can be
+Further information, surprise, surprise, can be
 found [here](https://developers.eventstore.com/clients/grpc/subscriptions.html#subscription-basics).
 
 Every subscription needs to be provided with an event listener which has the following signature:
@@ -266,6 +254,7 @@ appended after the starting position. Check out
 the [docs](https://developers.eventstore.com/clients/grpc/subscriptions.html#subscribing-to-all) for further
 information.
 
+The plugin provides these methods for subscribing to multiple streams:
 ```kotlin
 suspend fun subscribeToAll(listener: EventListener): Subscription
 
