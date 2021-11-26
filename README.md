@@ -93,15 +93,13 @@ the [documentation](https://developers.eventstore.com/clients/grpc/#getting-star
 
 ### Accessing the client
 
-After you installed Ktor plugin as described above you can fetch it in your code like this.
-
 ```kotlin
 val Application.eventStoreDb
     get() = featureOrNull(EventStoreDB) ?: install(EventStoreDB)
 ```
 
 The plugin provide you with this extension val fetching the client or if absent installing it. Therefore, the client is
-almost "everywhere" accessible if you follow Ktor´s extension function pattern.
+almost "everywhere" accessible if you follow Ktor´s extension function pattern. After you installed Ktor plugin as described above you can fetch it in your code like this.
 
 In case you use [Koin for Ktor](https://insert-koin.io/docs/reference/koin-ktor/ktor) just add the client to Koin as
 simple as this:
@@ -233,7 +231,7 @@ EventStoreDB {
 }
 ```
 
-Everytime a subscription drops, you rarely would want to reprocess all the events again. So you'd need to store the
+Everytime a subscription drops, you would rarely want to reprocess all the events again. So you'd need to store the
 current position of the subscription somewhere, and then use it to restore the subscription from the point where it
 dropped off.
 
