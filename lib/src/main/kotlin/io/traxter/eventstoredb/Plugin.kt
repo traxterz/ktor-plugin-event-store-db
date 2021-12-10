@@ -29,9 +29,11 @@ import io.ktor.application.log
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.newSingleThreadContext
 import org.slf4j.Logger
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.CoroutineContext
@@ -114,9 +116,11 @@ interface EventStoreDB : CoroutineScope {
 }
 
 internal class EventStoreDbPlugin(private val config: EventStoreDB.Configuration) : EventStoreDB {
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val executorContext = newSingleThreadContext("EventStoreDB-ResultHandler")
     private val parent: CompletableJob = Job()
     override val coroutineContext: CoroutineContext
-        get() = parent
+        get() = parent + executorContext
 
     private val streamRevisionBySubscriptionId = ConcurrentHashMap<String, StreamRevision>()
     private val positionBySubscriptionId = ConcurrentHashMap<String, Position>()

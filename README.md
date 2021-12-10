@@ -56,7 +56,7 @@ fun main() {
 }
 ```
 
-#### Version II - Convenient
+#### Version II - Shortcut
 
 ```kotlin
 fun main() {
