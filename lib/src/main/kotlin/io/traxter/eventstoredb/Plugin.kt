@@ -29,6 +29,7 @@ import io.ktor.application.log
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.future.await
@@ -36,6 +37,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.newSingleThreadContext
 import org.slf4j.Logger
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.CoroutineContext
 
 fun Application.EventStoreDB(config: EventStoreDB.Configuration.() -> Unit) =
@@ -117,10 +119,9 @@ interface EventStoreDB : CoroutineScope {
 
 internal class EventStoreDbPlugin(private val config: EventStoreDB.Configuration) : EventStoreDB {
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val executorContext = newSingleThreadContext("EventStoreDB-ResultHandler")
     private val parent: CompletableJob = Job()
     override val coroutineContext: CoroutineContext
-        get() = parent + executorContext
+        get() = parent
 
     private val streamRevisionBySubscriptionId = ConcurrentHashMap<String, StreamRevision>()
     private val positionBySubscriptionId = ConcurrentHashMap<String, Position>()
@@ -158,28 +159,30 @@ internal class EventStoreDbPlugin(private val config: EventStoreDB.Configuration
         options: SubscribeToStreamOptions,
         listener: EventListener
     ): Subscription =
-        client.subscribeToStream(
-            streamName,
-            object : SubscriptionListener() {
-                override fun onEvent(subscription: Subscription, event: ResolvedEvent) {
-                    streamRevisionBySubscriptionId[subscription.subscriptionId] = event.originalEvent.streamRevision
-                    launch { listener(event) }
-                }
-
-                override fun onError(subscription: Subscription?, throwable: Throwable) {
-                    launch {
-                        if (config.reSubscribeOnDrop && subscription != null)
-                            subscribeToStream(
-                                streamName,
-                                options.fromRevision(streamRevisionBySubscriptionId[subscription.subscriptionId]),
-                                listener
-                            )
-                        config.errorListener(subscription, throwable)
+        subscriptionContext.let { context ->
+            client.subscribeToStream(
+                streamName,
+                object : SubscriptionListener() {
+                    override fun onEvent(subscription: Subscription, event: ResolvedEvent) {
+                        streamRevisionBySubscriptionId[subscription.subscriptionId] = event.originalEvent.streamRevision
+                        launch(context) { listener(event) }
                     }
-                }
-            },
-            options
-        ).await()
+
+                    override fun onError(subscription: Subscription?, throwable: Throwable) {
+                        launch(context) {
+                            if (config.reSubscribeOnDrop && subscription != null)
+                                subscribeToStream(
+                                    streamName,
+                                    options.fromRevision(streamRevisionBySubscriptionId[subscription.subscriptionId]),
+                                    listener
+                                )
+                            config.errorListener(subscription, throwable)
+                        }
+                    }
+                },
+                options
+            ).await()
+        }
 
     override suspend fun subscribeToAll(listener: EventListener): Subscription = subscribeToAll(
         SubscribeToAllOptions.get(), listener
@@ -189,26 +192,29 @@ internal class EventStoreDbPlugin(private val config: EventStoreDB.Configuration
         options: SubscribeToAllOptions,
         listener: EventListener
     ): Subscription =
-        client.subscribeToAll(
-            object : SubscriptionListener() {
-                override fun onEvent(subscription: Subscription, event: ResolvedEvent) {
-                    positionBySubscriptionId[subscription.subscriptionId] = event.originalEvent.position
-                    launch { listener(event) }
-                }
-
-                override fun onError(subscription: Subscription?, throwable: Throwable) {
-                    launch {
-                        if (config.reSubscribeOnDrop && subscription != null)
-                            subscribeToAll(
-                                options.fromPosition(positionBySubscriptionId[subscription.subscriptionId]),
-                                listener
-                            )
-                        config.errorListener(subscription, throwable)
+        subscriptionContext.let { context ->
+            client.subscribeToAll(
+                object : SubscriptionListener() {
+                    override fun onEvent(subscription: Subscription, event: ResolvedEvent) {
+                        positionBySubscriptionId[subscription.subscriptionId] = event.originalEvent.position
+                        launch(context) { listener(event) }
                     }
-                }
-            },
-            options
-        ).await()
+
+                    override fun onError(subscription: Subscription?, throwable: Throwable) {
+                        launch(context) {
+                            if (config.reSubscribeOnDrop && subscription != null)
+                                subscribeToAll(
+                                    options.fromPosition(positionBySubscriptionId[subscription.subscriptionId]),
+                                    listener
+                                )
+                            config.errorListener(subscription, throwable)
+                        }
+                    }
+                },
+                options
+            ).await()
+        }
+
 
     override suspend fun subscribeByStreamNameFiltered(prefix: Prefix, listener: EventListener): Subscription =
         SubscriptionFilter.newBuilder().withStreamNamePrefix(prefix.value).build()
@@ -246,6 +252,13 @@ internal class EventStoreDbPlugin(private val config: EventStoreDB.Configuration
 
     fun shutdown() =
         parent.complete().also { client.shutdown() }
+
+    private val subscriptionContextCounter = AtomicInteger(0)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val subscriptionContext: ExecutorCoroutineDispatcher
+        get() =
+            newSingleThreadContext("EventStoreDB-subscription-context-${subscriptionContextCounter.incrementAndGet()}")
 }
 
 @JvmInline
